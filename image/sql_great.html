@@ -1,0 +1,86 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pqsql优化</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h4><a id="1select_0"></a>1、select没带分区键，导致扫描所有分表</h4>
+<p>相关概念：分区总表、分区子表。分区键。分区策略：range、list(值分区)、hash方式<br>
+手动创建表table的分区table_20220322</p>
+<pre><code class="prism language-sql"><span class="token keyword">CREATE</span> <span class="token keyword">TABLE</span> <span class="token keyword">IF</span> <span class="token operator">NOT</span> <span class="token keyword">EXISTS</span> table_20220322 <span class="token keyword">PARTITION</span> <span class="token keyword">OF</span> <span class="token keyword">table</span>
+</code></pre>
+<p>range分区：常见的，按时间范围来分区。<br>
+值分区：按分区键的取值来划分，每个值一个分区。<br>
+hash分区：基于hash进行分区</p>
+<p>分区表的只要作用：能有效的快速裁剪，加快查询效率。<br>
+分区表的注意事项：<br>
+1、pqsql在创建唯一键时，必须带上分区键，也就是说分区字段不再全局唯一。<br>
+2、不要轻易更新分区键，因为更新分区键会导致数据移动，导致数据倾斜。</p>
+<h4><a id="2update_17"></a>2、update没带分区键，造成额外索引扫描，浪费资源</h4>
+<h4><a id="3_20"></a>3、索引的简单使用</h4>
+<p>A）组合索引要满足最左前缀原则，组合索引中的第一字段要出现在where中，只出现第二、第三索引等，索引不生效。<br>
+B）慎用OR，大量的OR连接，会导致索引生效，或索引重复扫描<br>
+C）in的值不能过度多，会导致索引失效。in的值太多，可能随机IO太多，使索引失效<br>
+D）简洁为主，不要随便嵌套子查询。</p>
+<h4><a id="4in_26"></a>4、单一取值，使用=来精确取值，不要用in(业务层面不直观，以为可以取多个值)</h4>
+<h4><a id="5app_28"></a>5、查询的时候，返回百万数据过大，有浪费资源的嫌疑，同时要考虑app层面能否一次接住这么大的数据量</h4>
+<h4><a id="6_30"></a>6、适当使用批量操作（根据具体业务场景分析）</h4>
+<p>比如要经常查询数据获取信息，考虑批量获取，减少查询数据库次数。</p>
+<h4><a id="7_33"></a>7、无效操作</h4>
+<p>该语句只更新了update_time，没有任何业务逻辑可言；给pg带来负担（pg每次请求都会fork一个子进程），同时业务层面，带来了垃圾数据。</p>
+<pre><code class="prism language-sql"><span class="token keyword">update</span> <span class="token keyword">table</span> <span class="token keyword">set</span> uppdate_time <span class="token operator">=</span> xxx <span class="token keyword">where</span> 查询条件
+</code></pre>
+<h4><a id="8_38"></a>8、多余操作</h4>
+<p>判断是否存在大于某个时间点的数据。</p>
+<pre><code class="prism language-sql"><span class="token keyword">select</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token keyword">table</span> <span class="token keyword">order</span> <span class="token keyword">by</span> something <span class="token keyword">limit</span> <span class="token number">1</span>
+</code></pre>
+<p>这里的order则是多此一举了</p>
+<h4><a id="91w_46"></a>9、删除表中最老的1w条数据</h4>
+<pre><code class="prism language-sql"><span class="token keyword">delete</span> <span class="token keyword">from</span> <span class="token keyword">table</span> <span class="token keyword">where</span> <span class="token keyword">key</span> <span class="token operator">in</span> <span class="token punctuation">(</span><span class="token keyword">select</span> <span class="token keyword">key</span> <span class="token keyword">from</span> <span class="token keyword">table</span> <span class="token keyword">order</span> <span class="token keyword">by</span> <span class="token keyword">time</span> <span class="token keyword">limit</span> <span class="token number">10000</span> <span class="token punctuation">)</span>
+</code></pre>
+<p>优化后</p>
+<pre><code class="prism language-sql"><span class="token keyword">delete</span> <span class="token keyword">from</span> <span class="token keyword">table</span> <span class="token keyword">where</span> ctid <span class="token operator">in</span> <span class="token punctuation">(</span><span class="token keyword">select</span> ctid <span class="token keyword">from</span> <span class="token keyword">table</span> <span class="token keyword">order</span> <span class="token keyword">by</span> <span class="token keyword">time</span> <span class="token keyword">limit</span> <span class="token number">10000</span> <span class="token punctuation">)</span>
+</code></pre>
+<p>巧用cid tid scan可以直接定位到数据，不需要额外的索引操作。<strong>ctid</strong>是pg自带的隐藏字段。</p>
+<h4><a id="10_57"></a>10、获取表中新增的数据量</h4>
+<pre><code class="prism language-sql"><span class="token keyword">select</span> <span class="token function">count</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span> <span class="token keyword">from</span> 表名 <span class="token keyword">where</span> create_time <span class="token operator">between</span> <span class="token number">11111</span> <span class="token keyword">to</span> <span class="token number">22222.</span>
+</code></pre>
+<p>优化后</p>
+<pre><code class="prism language-sql"><span class="token keyword">select</span> n_live_tup count <span class="token keyword">from</span> pg_stat_all_tables <span class="token keyword">where</span> relname <span class="token operator">=</span> <span class="token string">'表名'</span>
+</code></pre>
+<p>获取最新的count，然后和上次缓存的count对比，即可知道，增量的数据。<br>
+<strong>n_live_tup</strong>和<strong>pg_stat_all_tables</strong>都是pg自带的字段。<br>
+用这种方式不是很准确，但速度快。</p>
+<h4><a id="11returnning__70"></a>11、returnning 关键字应用</h4>
+<p>分批处理，批量快跑</p>
+<h4><a id="12_73"></a>12、索引的建立</h4>
+<p>1、频繁更新的字段不适合建立索引<br>
+2、低基的字段不啊建立索引，比如只有01状态的字段，因为基数低意味着命中的数量大，会产生大量的随机回表扫描，不一定比顺序索引快。<br>
+3、复合索引要满足最左前缀原则<br>
+4、一张表的索引要控制在10个以内</p>
+<h4><a id="13_79"></a>13、表设计相关</h4>
+<p>要有主键<br>
+存在id和name一一映射关系的，考虑用另一张表维护id和name的映射，主表不存name字段，节省空间存储。<br>
+类型要用对，比如ip要用ip类型，不能用varchar<br>
+创建的索引，不需要含分区键，多余。<br>
+字段的类型选取合理，避免浪费空间<br>
+字段的命名要合理，避免歧义</p>
+<h4><a id="14_87"></a>14、冗余嵌套</h4>
+<p>避免多余的嵌套查询；<br>
+select时，避免获取多余的字段。</p>
+<h4><a id="15_91"></a>15、查询大数据量数据</h4>
+<p>1、考虑模糊数据展示，比如展示为14.7w 满足业务要求，精确查询耗时大。<br>
+2、考虑缓存count，按天来查询，每天凌晨定时查询当天的数据，并累加到缓存中。按天滚动count，减少pg瞬间的负载。</p>
+<h4><a id="_96"></a>优化总结：</h4>
+<p>1、从数据库查询本身分析优化；相同的查询结果，用什么sql能命中索引，能更快。</p>
+<p>2、从业务角度优化：减少返回一些不必要的字段；批量查询，减少查询次数；避免无意义的sql查询。</p>
+<p>3、从sql底层，挖掘效率更快的方法，比如前面提到的第9和第10点。</p>
+</div>
+</body>
+
+</html>
