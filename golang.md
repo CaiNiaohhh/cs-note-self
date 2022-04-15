@@ -216,3 +216,92 @@ key定位过程
   超过 8 个就会产生 overflow bucket，结果也会造成 overflow bucket 数过多。移动元素其实解决不了问题，因为这时整个哈希表已经退化成了一个链表，操作效率变成了 O(n)。
 - 再来看一下扩容具体是怎么做的。由于 map 扩容需要将原有的 key/value 重新搬迁到新的内存地址，
   如果有大量的 key/value 需要搬迁，会非常影响性能。因此 Go map 的扩容采取了一种称为“渐进式”地方式，原有的 key 并不会一次性搬迁完毕，每次最多只会搬迁 2 个 bucket。
+
+#####sync.map与map的区别，怎么实现的
+往nil（即没有make过） map里面添加键值对会panic，
+map类型的值不是并发安全的，即使只是添加或删除操作，也是不安全的，根本原因在于字典值内部有时候会根据需要进行存储方面的调整  
+并发安全的话使用sync.map
+Go 的内建 map 是不支持并发写操作的，原因是 map 写操作不是并发安全的，当你尝试多个 Goroutine 操作同一个 map，会产生报错：fatal error: concurrent map writes。
+sync.Map 的实现原理可概括为：
+- 通过 read 和 dirty 两个字段将读写分离，读的数据存在只读字段 read 上，将最新写入的数据则存在 dirty 字段上
+- 读取时会先查询 read，不存在再查询 dirty，写入时则只写入 dirty
+- 读取 read 并不需要加锁，而读或写 dirty 都需要加锁
+- 另外有 misses 字段来统计 read 被穿透的次数（被穿透指需要读 dirty 的情况），超过一定次数则将 dirty 数据同步到 read 上
+- 对于删除数据则直接通过标记来延迟删除
+底层数据结构
+>Map 的数据结构如下：
+type Map struct {
+    // 加锁作用，保护 dirty 字段
+    mu Mutex
+    // 只读的数据，实际数据类型为 readOnly
+    read atomic.Value
+    // 最新写入的数据
+    dirty map[interface{}]*entry
+    // 计数器，每次需要读 dirty 则 +1
+    misses int
+}
+复制代码其中 readOnly 的数据结构为：
+type readOnly struct {
+    // 内建 map
+    m  map[interface{}]*entry
+    // 表示 dirty 里存在 read 里没有的 key，通过该字段决定是否加锁读 dirty
+    amended bool
+}
+复制代码entry 数据结构则用于存储值的指针：
+type entry struct {
+    p unsafe.Pointer  // 等同于 *interface{}
+}
+复制代码属性 p 有三种状态：
+p == nil: 键值已经被删除，且 m.dirty == nil
+p == expunged: 键值已经被删除，但 m.dirty!=nil 且 m.dirty 不存在该键值（expunged 实际是空接口指针）
+除以上情况，则键值对存在，存在于 m.read.m 中，如果 m.dirty!=nil 则也存在于 m.dirty
+Map 常用的有以下方法：
+Load：读取指定 key 返回 value
+Store： 存储（增或改）key-value
+Delete： 删除指定 key
+
+####golang实现线程池思路
+代码可以看这个https://www.1024sou.com/article/39699.html
+思路大概就是
+// 定义接口 可传任意参数
+type TaskFunc func(args ...interface{})
+// 定义任务实体，里面有方法和参数
+type Task struct {
+    f    TaskFunc
+    args interface{}
+}
+// 定义线程池对象
+type WorkPool struct {
+    Pool       chan *Task      //定义任务池
+    WorkCount  int             //工作线程数量,决定初始化几个goroutine
+    StopCtx    context.Context //上下文
+    StopCancel context.CancelFunc
+    WG         sync.WaitGroup //阻塞计数器
+}
+WorkPool有下面这些方法：
+- New: 实例化一个线程池对象
+- Work：使用该方法执行任务，通过select 从Pool里面拿任务执行
+- Start: 主要是根据WorkCount的大小来开启go Work()
+- Stop: 阻止运行
+有两个细节的地方：
+- main里面开启任务数的时候，要taskWg := sync.WaitGroup{}，然后要taskWg.Add(count),然后后面运行的时候，没运行一个任务
+（函数）就然后要taskWg.Done()，在main函数末尾要加上然后要taskWg.Wait()
+- Stop的执行是
+  w.StopCancel()
+  w.WG.Wait()
+相应的，Work里面是
+  for {
+        select {
+        case <-w.StopCtx.Done():
+            w.WG.Done()
+            fmt.Printf("线程%d 退出执行了 \n", wid)
+            return
+        case t := <-w.Pool:
+            if t != nil {
+                t.Execute()
+                fmt.Printf("f被线程%d执行了，参数为%v \n", wid, t.args)
+            }
+        }
+    }
+  
+####

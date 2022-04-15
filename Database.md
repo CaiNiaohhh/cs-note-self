@@ -383,6 +383,12 @@ InnoDB的索引使用的是B+树实现，B+树对比B树的好处：
 - 降低单个服务器磁盘I/O访问的频率，提高单个机器的I/O性能
 </details>
 
+####mysql分库分表
+https://juejin.cn/post/6844903648670007310
+
+
+
+
 ####sql优化
 ![sql](./image/sqlGreat.png)
 
