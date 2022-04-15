@@ -33,11 +33,14 @@
   A <- true // 启动条件<br>
   <-Exit    // 结束条件<br>
 }
-
-
 ####gin中间件
 自定义的中间件只能捕获主goroutine的异常，子goroutine还是需要对应的function里面写defer func去捕获
 - 中间件代码最后即使没有调用Next()方法，后续中间件及handlers也会执行；
 - 如果在中间件函数的非结尾调用Next()方法当前中间件剩余代码会被暂停执行，会先去执行后续中间件及handlers，等这些handlers全部执行完以后程序控制权会回到当前中间件继续执行剩余代码；
 - 如果想提前中止当前中间件的执行应该使用return退出而不是Next()方法；
 - 如果想中断剩余中间件及handlers应该使用Abort方法，但需要注意当前中间件的剩余代码会继续执行。
+
+gin文档：https://www.topgoer.com/gin%E6%A1%86%E6%9E%B6/gin%E8%B7%AF%E7%94%B1/api%E5%8F%82%E6%95%B0.html  
+mysql和redis的数据同步问题：https://www.cnblogs.com/xiaozengzeng/p/10872290.html  
+- 读的场景：先去读redis,没有读到的话再去读数据库。更新可以自己设置一个时间间隔（比如几分钟)，然后针对redis中的key值去访问MySQL，不一样的话就更新reids的值
+- 增删改的的情况：不经过redis，直接对数据库进行操作，可以设置一些触发器，当执行对应的增删改操作时就刷新redis的值。
