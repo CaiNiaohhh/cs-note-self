@@ -151,7 +151,7 @@ mspan 是相同大小等级的 span 的双向链表的一个节点，每个节�
   
 ctx, cancel := context.WithCancel(context.Background())  调用cancel()后channel可读 case <- ctx.Done()
 #####实现
-- func WithCancel(parent Context) (ctx Context, cancel CancelFunc)
+- func WithCancel(parent Context) (ctx Context, cancel CancelFunc) 可无限继承
 - func WithDeadline(parent Context, deadline time.Time) (Context, CancelFunc)
 - func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc)
 - func WithValue(parent Context, key, val interface{}) Context
