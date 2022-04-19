@@ -23,8 +23,16 @@ GMP调度流程大致如下：
 - GMP 要是M中增加的P没有G，则顺序是 全局P队列（需加锁）、其他P队列拿一半
 #### Goroutine有哪几种状态
 https://studygolang.com/articles/11861
+- Grunnable：1.1 创建goroutine 1.2 阻塞任务唤醒
+- Grunning：
+- Gsyscall：如果系统调用是阻塞式的或者执行过久，则将当前M与P分离
+- Gwaiting：当一个任务需要的资源或运行条件不能被满足时，需要调用runtime.park函数进入该状态，
+  之后除非等待条件满足，否则任务将一直处于等待状态不能执行。除了之前举过的channel的例子外，Go的定时器，网络io操作，原子，信号量都可能引起任务的阻塞。
+- Gdead：当一个任务执行结束后，会调用runtime.goexit结束。将状态置为Gdead
 ####线程(M)有几种状态 -> (自旋、非自旋。)
-https://golang.design/under-the-hood/zh-cn/part2runtime/ch06sched/mpg/
+https://golang.design/under-the-hood/zh-cn/part2runtime/ch06sched/mpg/  
+当 M 没有工作可做的时候，在它休眠前，会“自旋”地来找工作：检查全局队列，查看 network poller，试图执行 gc 任务，或者“偷”工作。
+M 只有自旋和非自旋两种状态。自旋的时候，会努力找工作；找不到的时候会进入非自旋状态，之后会休眠，直到有工作需要处理时，被其他工作线程唤醒，又进入自旋状态。
 ####每个线程/协程占用多少内存知道吗？
 - 线程是有固定的栈的，基本都是2MB，当然，不同系统可能大小不太一样，但是的确都是固定分配的。
 - go采用了动态扩张收缩的策略：初始化为几KB，最大可扩张到1GB。
@@ -290,6 +298,7 @@ WorkPool有下面这些方法：
   w.StopCancel()
   w.WG.Wait()
 相应的，Work里面是
+```shell
   for {
         select {
         case <-w.StopCtx.Done():
@@ -303,5 +312,7 @@ WorkPool有下面这些方法：
             }
         }
     }
+```
+
   
 ####

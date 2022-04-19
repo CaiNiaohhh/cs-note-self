@@ -44,3 +44,7 @@ gin文档：https://www.topgoer.com/gin%E6%A1%86%E6%9E%B6/gin%E8%B7%AF%E7%94%B1/
 mysql和redis的数据同步问题：https://www.cnblogs.com/xiaozengzeng/p/10872290.html  
 - 读的场景：先去读redis,没有读到的话再去读数据库。更新可以自己设置一个时间间隔（比如几分钟)，然后针对redis中的key值去访问MySQL，不一样的话就更新reids的值
 - 增删改的的情况：不经过redis，直接对数据库进行操作，可以设置一些触发器，当执行对应的增删改操作时就刷新redis的值。
+
+####MySQL和Redis同步数据
+一个比较好的方法是用一个服务获取MySQL的binlog信息，定时更新，然后Redis进行读取后更新，比如Java实现的Canal
+![](./image/SyncCanal.png)
