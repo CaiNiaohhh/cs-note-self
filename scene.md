@@ -48,3 +48,8 @@ mysql和redis的数据同步问题：https://www.cnblogs.com/xiaozengzeng/p/1087
 ####MySQL和Redis同步数据
 一个比较好的方法是用一个服务获取MySQL的binlog信息，定时更新，然后Redis进行读取后更新，比如Java实现的Canal
 ![](./image/SyncCanal.png)
+
+####设计一个缓存，能返回n秒内的数据，
+可以采用哈希表的方式，采用惰性删除，节点里面存储的是值，时间戳，引用次数
+1. 每次访问的时候，命中元素先判断该节点是否已经过期，没过期再命中
+2. 定期清除最少引用次数的节点
